@@ -1,6 +1,6 @@
-# reddit_miner.py
-# Main Reddit Data Mining Script for USC Thesis
-# Place this file in: scripts/reddit_miner.py
+# enhanced_reddit_miner.py
+# Enhanced Reddit Data Mining Script with Code-Switching Detection
+# Focus on USC-related posts with Bisaya, Tagalog, and Conyo code-switching
 
 import praw
 import pandas as pd
@@ -14,96 +14,329 @@ import sys
 from textblob import TextBlob
 import matplotlib.pyplot as plt
 import seaborn as sns
+from collections import Counter
+import numpy as np
+import requests
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Import configuration
-from config import REDDIT_CONFIG, USC_KEYWORDS, TARGET_SUBREDDITS, COLLECTION_PARAMS
-
-class RedditDataMiner:
+# Enhanced configuration for code-switching detection
+class CodeSwitchingDetector:
     def __init__(self):
+        # Filipino/Bisaya/Tagalog keywords and patterns
+        self.bisaya_words = [
+            'uy', 'bay', 'bai', 'dong', 'daw', 'gud', 'naa', 'wala', 'bitaw', 'mao',
+            'kay', 'unya', 'unsa', 'asa', 'kinsa', 'kanus-a', 'ngano', 'ayaw', 'wa',
+            'nya', 'ra', 'man', 'pud', 'pod', 'sad', 'gani', 'lagi', 'jud', 'gyud',
+            'kaayo', 'lisod', 'sayon', 'dili', 'ayaw', 'pwede', 'murag', 'para',
+            'mga', 'diha', 'diri', 'nganong', 'unsaon', 'pila', 'daghan', 'gamay',
+            'kusog', 'hinay', 'bisan', 'kung', 'pero', 'unya', 'dayon', 'usa',
+            'duha', 'tulo', 'upat', 'lima', 'walo', 'syete', 'siyam', 'napulo',
+            'buntag', 'hapon', 'gabii', 'ugma', 'gahapon', 'karon', 'kaniadto',
+            'lami', 'humot', 'baho', 'init', 'bugnaw', 'ulan', 'adlaw', 'buwan',
+            'tuig', 'semana', 'oras', 'minuto', 'segundo', 'balay', 'kwarto',
+            'kusina', 'banyo', 'sala', 'higdaanan', 'lamesa', 'lingkoranan',
+            'bisaya', 'cebuano', 'binisaya'
+        ]
+        
+        self.tagalog_words = [
+            'ako', 'ikaw', 'siya', 'kami', 'kayo', 'sila', 'tayo', 'natin', 'namin',
+            'ninyo', 'nila', 'kita', 'mo', 'ko', 'ka', 'niya', 'namin', 'ninyo',
+            'nila', 'ito', 'iyan', 'iyon', 'dito', 'diyan', 'doon', 'nandito',
+            'nandiyan', 'nandoon', 'hindi', 'oo', 'opo', 'hindi', 'wala', 'may',
+            'meron', 'mayroon', 'kung', 'kapag', 'pag', 'para', 'dahil', 'kasi',
+            'pero', 'ngunit', 'at', 'o', 'na', 'nga', 'naman', 'din', 'rin',
+            'lang', 'lamang', 'pa', 'na', 'eh', 'ah', 'oh', 'hay', 'naku',
+            'talaga', 'totoo', 'totoong', 'ganda', 'maganda', 'pangit', 'tama',
+            'mali', 'mabuti', 'masama', 'ayos', 'okay', 'sige', 'tara', 'halika',
+            'pumunta', 'umuwi', 'umalis', 'bumalik', 'kumain', 'uminom', 'matulog',
+            'gumising', 'maligo', 'magbihis', 'mag-aral', 'magtrabaho', 'maglaro',
+            'manood', 'makinig', 'magbasa', 'magsulat', 'maglakad', 'tumakbo',
+            'tagalog', 'filipino', 'pinoy', 'pilipino'
+        ]
+        
+        self.conyo_words = [
+            'like', 'kasi', 'ganon', 'ganun', 'yung', 'yun', 'naman', 'talaga',
+            'super', 'grabe', 'sobrang', 'ang', 'sa', 'ng', 'mga', 'yung',
+            'ano', 'ba', 'eh', 'kaya', 'lang', 'naman', 'diba', 'di ba',
+            'omg', 'wtf', 'lol', 'haha', 'hehe', 'hihi', 'char', 'chos',
+            'naks', 'oks', 'pwede', 'sige', 'tara', 'go', 'sus', 'sis',
+            'bro', 'kuya', 'ate', 'tito', 'tita', 'lola', 'lolo', 'mama',
+            'papa', 'nanay', 'tatay', 'anak', 'kapatid', 'pinsan', 'barkada',
+            'tropa', 'bestie', 'bff', 'crush', 'jowa', 'syota', 'kras',
+            'kilig', 'bitter', 'emo', 'jologs', 'baduy', 'sosyal', 'burgis',
+            'jejemon', 'feelingera', 'feelingero', 'chismosa', 'chismoso',
+            'maarte', 'malandi', 'pakipot', 'torpe', 'assuming', 'deadma',
+            'ghosting', 'seen zone', 'friendzone', 'conyo', 'jeje'
+        ]
+        
+        # Mixed patterns (English + Filipino)
+        self.mixed_patterns = [
+            r'\b(kasi|pero|tapos|then|and then|kaya|so|like)\b.*\b(english|tagalog|bisaya)\b',
+            r'\b(i|you|we|they)\b.*\b(naman|talaga|nga|ba|eh)\b',
+            r'\b(super|very|really)\b.*\b(ganda|pangit|ayos|okay)\b',
+            r'\b(my|your|our|their)\b.*\b(ate|kuya|tito|tita)\b',
+            r'\b(grabe|sobrang|ang)\b.*\b(nice|good|bad|cool)\b'
+        ]
+        
+        # USC-specific terms
+        self.usc_terms = [
+            'usc', 'university of san carlos', 'san carlos', 'carolinian', 'carolinians',
+            'talamban', 'downtown', 'main', 'north', 'south', 'campus', 'tc', 'dc',
+            'usc-tc', 'usc-dc', 'usc main', 'usc north', 'usc south', 'usc talamban',
+            'casaa', 'engineering', 'business', 'education', 'arts', 'sciences',
+            'medicine', 'nursing', 'pharmacy', 'dentistry', 'law', 'architecture',
+            'carolinian', 'green and gold', 'warriors', 'usc warriors'
+        ]
+    
+    def detect_code_switching(self, text):
         """
-        Initialize Reddit API connection using config
+        Detect code-switching in text and return analysis
         """
+        text_lower = text.lower()
+        
+        # Count occurrences of each language
+        bisaya_count = sum(1 for word in self.bisaya_words if word in text_lower)
+        tagalog_count = sum(1 for word in self.tagalog_words if word in text_lower)
+        conyo_count = sum(1 for word in self.conyo_words if word in text_lower)
+        
+        # Check for mixed patterns
+        mixed_patterns_found = sum(1 for pattern in self.mixed_patterns if re.search(pattern, text_lower))
+        
+        # Check for USC relevance
+        usc_relevance = sum(1 for term in self.usc_terms if term in text_lower)
+        
+        # Determine if code-switching is present
+        total_filipino_words = bisaya_count + tagalog_count + conyo_count
+        has_code_switching = total_filipino_words >= 2 or mixed_patterns_found > 0
+        
+        # Determine dominant language mix
+        language_mix = []
+        if bisaya_count > 0:
+            language_mix.append('bisaya')
+        if tagalog_count > 0:
+            language_mix.append('tagalog')
+        if conyo_count > 0:
+            language_mix.append('conyo')
+        
+        return {
+            'has_code_switching': has_code_switching,
+            'bisaya_count': bisaya_count,
+            'tagalog_count': tagalog_count,
+            'conyo_count': conyo_count,
+            'mixed_patterns_found': mixed_patterns_found,
+            'total_filipino_words': total_filipino_words,
+            'language_mix': language_mix,
+            'usc_relevance_score': usc_relevance,
+            'code_switching_score': total_filipino_words + mixed_patterns_found
+        }
+
+class EnhancedRedditMiner:
+    def __init__(self):
+        """Initialize with enhanced configuration"""
+        # Reddit API configuration - you'll need to add your credentials
         self.reddit = praw.Reddit(
-            client_id=REDDIT_CONFIG['client_id'],
-            client_secret=REDDIT_CONFIG['client_secret'],
-            user_agent=REDDIT_CONFIG['user_agent']
+            client_id='TG2zWWhi5QJNS8kIT5HgRQ',
+            client_secret='Pk8S4MauTq0lQtg5IXfrnpIvRi_Rrw',
+            user_agent='USC_Thesis_Research_v1.0 by u/Dizzy-Language-6383'
         )
         
-        # Test connection
-        try:
-            print(f"Connected to Reddit as: {self.reddit.user.me()}")
-        except:
-            print("Connected to Reddit (read-only mode)")
+        self.code_detector = CodeSwitchingDetector()
         
-    def search_usc_posts(self, keywords=None, subreddits=None, time_filter='all', limit=100):
-        """
-        Search for USC-related posts across Reddit
-        """
-        if keywords is None:
-            keywords = USC_KEYWORDS
-        if subreddits is None:
-            subreddits = TARGET_SUBREDDITS
-            
-        posts_data = []
+        # Enhanced keywords for USC
+        self.usc_keywords = [
+            'university of san carlos', 'usc', 'san carlos university',
+            'carolinian', 'carolinians', 'usc talamban', 'usc downtown',
+            'usc main', 'usc tc', 'usc dc', 'usc warriors', 'green and gold',
+            'usc cebu', 'usc philippines', 'casaa', 'usc engineering',
+            'usc business', 'usc medicine', 'usc nursing', 'usc law',
+            'usc architecture', 'usc education', 'usc arts', 'usc sciences'
+        ]
         
-        # Combine keywords into search query
-        search_query = ' OR '.join([f'"{keyword}"' for keyword in keywords])
+        # Expanded subreddit list
+        self.target_subreddits = [
+            'Philippines', 'Cebu', 'studentsph', 'CollegeStudentsph',
+            'UniversityOfThePhilippines', 'phinvest', 'phr4r', 'phclassifieds',
+            'phcareers', 'phgamers', 'phbooks', 'phtech', 'phtravel',
+            'casualph', 'askph', 'phstudents', 'phuniversity', 'phcollege',
+            'cebuano', 'bisaya', 'visayas', 'mindanao', 'luzon'
+        ]
         
-        for subreddit_name in subreddits:
-            try:
-                subreddit = self.reddit.subreddit(subreddit_name)
-                print(f"Searching in r/{subreddit_name}...")
-                
-                # Search posts
-                posts_found = 0
-                for submission in subreddit.search(search_query, time_filter=time_filter, limit=limit):
-                    # Filter for post-pandemic content
-                    post_date = datetime.fromtimestamp(submission.created_utc)
-                    if post_date >= datetime.strptime(COLLECTION_PARAMS['start_date'], '%Y-%m-%d'):
-                        
-                        post_data = {
-                            'post_id': submission.id,
-                            'subreddit': subreddit_name,
-                            'title': submission.title,
-                            'text': submission.selftext,
-                            'score': submission.score,
-                            'upvote_ratio': submission.upvote_ratio,
-                            'num_comments': submission.num_comments,
-                            'created_utc': submission.created_utc,
-                            'created_date': post_date.strftime('%Y-%m-%d %H:%M:%S'),
-                            'author': str(submission.author),
-                            'url': submission.url,
-                            'permalink': f"https://reddit.com{submission.permalink}"
-                        }
-                        posts_data.append(post_data)
-                        posts_found += 1
-                        
-                        # Add delay to respect rate limits
-                        time.sleep(0.1)
-                
-                print(f"  Found {posts_found} posts in r/{subreddit_name}")
-                        
-            except Exception as e:
-                print(f"Error searching r/{subreddit_name}: {e}")
-                continue
-                
-        return posts_data
+        # Collection parameters
+        self.collection_params = {
+            'posts_per_subreddit': 200,
+            'comments_per_post': 50,
+            'max_posts_total': 1000,
+            'max_comments_total': 5000,
+            'start_date': '2020-01-01',
+            'rate_limit_delay': 0.5
+        }
+        
+        self.collected_data = []
+        self.stats = {
+            'total_posts': 0,
+            'total_comments': 0,
+            'code_switching_posts': 0,
+            'code_switching_comments': 0,
+            'usc_relevant_posts': 0,
+            'usc_relevant_comments': 0
+        }
     
-    def get_post_comments(self, post_id, limit=None):
-        """
-        Get comments for a specific post
-        """
-        if limit is None:
-            limit = COLLECTION_PARAMS['comments_per_post']
+    def search_posts_with_code_switching(self):
+        """Enhanced search for posts with code-switching"""
+        all_posts = []
+        
+        # Search with different keyword combinations
+        search_strategies = [
+            # Direct USC searches
+            ['university of san carlos', 'usc cebu', 'carolinian'],
+            # Code-switching + USC
+            ['usc kasi', 'usc pero', 'usc tapos', 'usc sige'],
+            # Campus-specific searches
+            ['usc talamban', 'usc downtown', 'usc main'],
+            # Academic-related
+            ['usc engineering', 'usc medicine', 'usc business', 'usc law'],
+            # Student life
+            ['usc student', 'usc freshie', 'usc graduate'],
+            # Filipino context
+            ['university cebu', 'college cebu', 'school cebu']
+        ]
+        
+        for strategy in search_strategies:
+            for subreddit_name in self.target_subreddits:
+                posts = self._search_subreddit(subreddit_name, strategy)
+                all_posts.extend(posts)
+                
+                if len(all_posts) >= self.collection_params['max_posts_total']:
+                    break
+                    
+                time.sleep(self.collection_params['rate_limit_delay'])
             
+            if len(all_posts) >= self.collection_params['max_posts_total']:
+                break
+        
+        # Filter and deduplicate
+        unique_posts = self._deduplicate_posts(all_posts)
+        filtered_posts = self._filter_relevant_posts(unique_posts)
+        
+        return filtered_posts[:self.collection_params['max_posts_total']]
+    
+    def _search_subreddit(self, subreddit_name, keywords):
+        """Search a specific subreddit with keywords"""
+        posts = []
+        
+        try:
+            subreddit = self.reddit.subreddit(subreddit_name)
+            
+            for keyword in keywords:
+                try:
+                    # Search with different time filters
+                    for time_filter in ['year', 'all']:
+                        for submission in subreddit.search(
+                            keyword, 
+                            time_filter=time_filter, 
+                            limit=50,
+                            sort='relevance'
+                        ):
+                            post_date = datetime.fromtimestamp(submission.created_utc)
+                            if post_date >= datetime.strptime(self.collection_params['start_date'], '%Y-%m-%d'):
+                                
+                                # Quick relevance check
+                                combined_text = f"{submission.title} {submission.selftext}".lower()
+                                code_analysis = self.code_detector.detect_code_switching(combined_text)
+                                
+                                post_data = {
+                                    'post_id': submission.id,
+                                    'subreddit': subreddit_name,
+                                    'title': submission.title,
+                                    'text': submission.selftext,
+                                    'combined_text': combined_text,
+                                    'score': submission.score,
+                                    'upvote_ratio': submission.upvote_ratio,
+                                    'num_comments': submission.num_comments,
+                                    'created_utc': submission.created_utc,
+                                    'created_date': post_date.strftime('%Y-%m-%d %H:%M:%S'),
+                                    'author': str(submission.author),
+                                    'url': submission.url,
+                                    'permalink': f"https://reddit.com{submission.permalink}",
+                                    'search_keyword': keyword,
+                                    **code_analysis
+                                }
+                                posts.append(post_data)
+                                
+                        time.sleep(0.2)  # Rate limiting
+                        
+                except Exception as e:
+                    print(f"Error searching '{keyword}' in r/{subreddit_name}: {e}")
+                    continue
+                    
+        except Exception as e:
+            print(f"Error accessing r/{subreddit_name}: {e}")
+            
+        return posts
+    
+    def _deduplicate_posts(self, posts):
+        """Remove duplicate posts"""
+        seen_ids = set()
+        unique_posts = []
+        
+        for post in posts:
+            if post['post_id'] not in seen_ids:
+                seen_ids.add(post['post_id'])
+                unique_posts.append(post)
+                
+        return unique_posts
+    
+    def _filter_relevant_posts(self, posts):
+        """Filter posts for relevance to USC and code-switching"""
+        relevant_posts = []
+        
+        for post in posts:
+            # Must have USC relevance OR code-switching
+            if post['usc_relevance_score'] > 0 or post['has_code_switching']:
+                relevant_posts.append(post)
+                
+        return relevant_posts
+    
+    def collect_comments_parallel(self, posts):
+        """Collect comments using parallel processing"""
+        all_comments = []
+        
+        def get_comments_for_post(post):
+            return self.get_post_comments(post['post_id'])
+        
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_post = {
+                executor.submit(get_comments_for_post, post): post 
+                for post in posts[:50]  # Limit to prevent rate limiting
+            }
+            
+            for future in as_completed(future_to_post):
+                post = future_to_post[future]
+                try:
+                    comments = future.result()
+                    all_comments.extend(comments)
+                    print(f"Collected {len(comments)} comments from: {post['title'][:50]}...")
+                except Exception as e:
+                    print(f"Error collecting comments for {post['post_id']}: {e}")
+                    
+        return all_comments
+    
+    def get_post_comments(self, post_id):
+        """Get comments for a specific post with code-switching analysis"""
         comments_data = []
         
         try:
             submission = self.reddit.submission(id=post_id)
             submission.comments.replace_more(limit=0)
             
-            for comment in submission.comments.list()[:limit]:
-                if hasattr(comment, 'body') and comment.body != '[deleted]':
+            for comment in submission.comments.list()[:self.collection_params['comments_per_post']]:
+                if hasattr(comment, 'body') and comment.body not in ['[deleted]', '[removed]']:
+                    
+                    # Analyze code-switching
+                    code_analysis = self.code_detector.detect_code_switching(comment.body)
+                    
                     comment_data = {
                         'comment_id': comment.id,
                         'post_id': post_id,
@@ -113,7 +346,8 @@ class RedditDataMiner:
                         'created_date': datetime.fromtimestamp(comment.created_utc).strftime('%Y-%m-%d %H:%M:%S'),
                         'author': str(comment.author),
                         'parent_id': comment.parent_id,
-                        'is_submitter': comment.is_submitter
+                        'is_submitter': comment.is_submitter,
+                        **code_analysis
                     }
                     comments_data.append(comment_data)
                     
@@ -122,14 +356,27 @@ class RedditDataMiner:
             
         return comments_data
     
-    def analyze_sentiment(self, text):
-        """
-        Analyze sentiment of text using TextBlob
-        """
+    def analyze_sentiment_enhanced(self, text):
+        """Enhanced sentiment analysis considering Filipino context"""
         try:
+            # Basic TextBlob analysis
             blob = TextBlob(text)
             polarity = blob.sentiment.polarity
             subjectivity = blob.sentiment.subjectivity
+            
+            # Adjust for Filipino positive/negative expressions
+            filipino_positive = ['ganda', 'ayos', 'okay', 'lami', 'nindot', 'sige', 'go']
+            filipino_negative = ['pangit', 'dili', 'hindi', 'ayaw', 'baduy', 'boring']
+            
+            text_lower = text.lower()
+            pos_count = sum(1 for word in filipino_positive if word in text_lower)
+            neg_count = sum(1 for word in filipino_negative if word in text_lower)
+            
+            # Adjust polarity based on Filipino words
+            if pos_count > neg_count:
+                polarity = min(1.0, polarity + 0.1 * pos_count)
+            elif neg_count > pos_count:
+                polarity = max(-1.0, polarity - 0.1 * neg_count)
             
             # Categorize sentiment
             if polarity > 0.1:
@@ -142,241 +389,138 @@ class RedditDataMiner:
             return {
                 'polarity': polarity,
                 'subjectivity': subjectivity,
-                'sentiment_category': sentiment_category
+                'sentiment_category': sentiment_category,
+                'filipino_positive_words': pos_count,
+                'filipino_negative_words': neg_count
             }
         except:
             return {
                 'polarity': 0,
                 'subjectivity': 0,
-                'sentiment_category': 'neutral'
+                'sentiment_category': 'neutral',
+                'filipino_positive_words': 0,
+                'filipino_negative_words': 0
             }
     
-    def collect_and_analyze_data(self, output_file=None):
-        """
-        Complete data collection and analysis pipeline
-        """
-        if output_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # Create absolute paths
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_dir = os.path.dirname(current_dir)
-            output_file = os.path.join(project_dir, 'data', 'raw', f'usc_reddit_data_{timestamp}.csv')
+    def run_complete_collection(self):
+        """Run the complete data collection process"""
+        print("Starting Enhanced USC Reddit Data Collection with Code-Switching Detection")
+        print("=" * 80)
         
-        print("Starting USC Reddit data collection...")
-        print(f"Target keywords: {USC_KEYWORDS}")
-        print(f"Target subreddits: {TARGET_SUBREDDITS}")
-        print(f"Collection period: From {COLLECTION_PARAMS['start_date']} onwards")
+        # Step 1: Collect posts
+        print("Step 1: Collecting posts...")
+        posts = self.search_posts_with_code_switching()
+        print(f"Found {len(posts)} relevant posts")
         
-        # Collect posts
-        posts = self.search_usc_posts(limit=COLLECTION_PARAMS['posts_per_subreddit'])
-        print(f"\nFound {len(posts)} posts total")
+        # Step 2: Collect comments
+        print("Step 2: Collecting comments...")
+        comments = self.collect_comments_parallel(posts)
+        print(f"Found {len(comments)} comments")
         
-        if len(posts) == 0:
-            print("No posts found! Try different keywords or subreddits.")
-            return None
-        
-        # Collect comments for posts
-        all_comments = []
-        print("Collecting comments...")
-        for i, post in enumerate(posts[:20]):  # Limit to first 20 posts for comments
-            print(f"Processing post {i+1}/{min(20, len(posts))}: {post['title'][:50]}...")
-            comments = self.get_post_comments(post['post_id'])
-            all_comments.extend(comments)
-            time.sleep(0.2)  # Rate limiting
-            
-        print(f"Found {len(all_comments)} comments total")
-        
-        # Combine and analyze data
+        # Step 3: Analyze sentiment
+        print("Step 3: Analyzing sentiment...")
         all_data = []
         
         # Process posts
-        print("Analyzing sentiment for posts...")
         for post in posts:
-            combined_text = f"{post['title']} {post['text']}"
-            sentiment = self.analyze_sentiment(combined_text)
-            
+            sentiment = self.analyze_sentiment_enhanced(post['combined_text'])
             post.update({
                 'content_type': 'post',
-                'combined_text': combined_text,
                 **sentiment
             })
             all_data.append(post)
-        
+            
         # Process comments
-        print("Analyzing sentiment for comments...")
-        for comment in all_comments:
-            sentiment = self.analyze_sentiment(comment['text'])
+        for comment in comments:
+            sentiment = self.analyze_sentiment_enhanced(comment['text'])
             comment.update({
                 'content_type': 'comment',
-                'combined_text': comment['text'],
                 **sentiment
             })
             all_data.append(comment)
         
-        # Create output directory if it doesn't exist
-        output_dir = os.path.dirname(output_file)
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-            print(f"Created directory: {output_dir}")
-        except Exception as e:
-            print(f"Error creating directory {output_dir}: {e}")
-            # Fallback to current directory
-            output_file = f'usc_reddit_data_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-            print(f"Saving to current directory: {output_file}")
+        # Step 4: Save data
+        print("Step 4: Saving data...")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f'usc_code_switching_data_{timestamp}.csv'
         
-        # Save to CSV
-        try:
-            df = pd.DataFrame(all_data)
-            df.to_csv(output_file, index=False)
-            print(f"\nData saved to {output_file}")
-            print(f"File size: {os.path.getsize(output_file)} bytes")
-        except Exception as e:
-            print(f"Error saving CSV file: {e}")
-            return None
+        df = pd.DataFrame(all_data)
+        df.to_csv(filename, index=False)
         
-        # Generate statistics and visualizations
-        self.generate_basic_stats(df)
-        self.create_visualizations(df, output_file)
+        # Step 5: Generate enhanced statistics
+        self.generate_enhanced_stats(df)
+        
+        print(f"\nData collection completed!")
+        print(f"Total records: {len(df)}")
+        print(f"Data saved to: {filename}")
         
         return df
     
-    def generate_basic_stats(self, df):
-        """
-        Generate basic statistics about the collected data
-        """
-        print("\n" + "="*50)
-        print("USC REDDIT DATA COLLECTION STATISTICS")
-        print("="*50)
+    def generate_enhanced_stats(self, df):
+        """Generate enhanced statistics"""
+        print("\n" + "=" * 60)
+        print("USC CODE-SWITCHING ANALYSIS RESULTS")
+        print("=" * 60)
         
-        total_posts = len(df[df['content_type'] == 'post'])
-        total_comments = len(df[df['content_type'] == 'comment'])
+        # Basic counts
+        posts_df = df[df['content_type'] == 'post']
+        comments_df = df[df['content_type'] == 'comment']
         
-        print(f"Total posts collected: {total_posts}")
-        print(f"Total comments collected: {total_comments}")
-        print(f"Total records: {len(df)}")
-        print(f"Date range: {df['created_date'].min()} to {df['created_date'].max()}")
+        print(f"Total posts: {len(posts_df)}")
+        print(f"Total comments: {len(comments_df)}")
         
-        # Subreddit distribution
-        if total_posts > 0:
-            print(f"\nPosts by subreddit:")
-            subreddit_counts = df[df['content_type'] == 'post']['subreddit'].value_counts()
-            for subreddit, count in subreddit_counts.items():
-                print(f"  r/{subreddit}: {count} posts")
+        # Code-switching statistics
+        cs_posts = posts_df[posts_df['has_code_switching'] == True]
+        cs_comments = comments_df[comments_df['has_code_switching'] == True]
         
-        # Sentiment distribution
+        print(f"\nCode-switching detection:")
+        print(f"Posts with code-switching: {len(cs_posts)} ({len(cs_posts)/len(posts_df)*100:.1f}%)")
+        print(f"Comments with code-switching: {len(cs_comments)} ({len(cs_comments)/len(comments_df)*100:.1f}%)")
+        
+        # Language mix analysis
+        all_cs_data = df[df['has_code_switching'] == True]
+        if len(all_cs_data) > 0:
+            print(f"\nLanguage mix in code-switching content:")
+            bisaya_count = len(all_cs_data[all_cs_data['bisaya_count'] > 0])
+            tagalog_count = len(all_cs_data[all_cs_data['tagalog_count'] > 0])
+            conyo_count = len(all_cs_data[all_cs_data['conyo_count'] > 0])
+            
+            print(f"Contains Bisaya: {bisaya_count}")
+            print(f"Contains Tagalog: {tagalog_count}")
+            print(f"Contains Conyo: {conyo_count}")
+        
+        # USC relevance
+        usc_relevant = df[df['usc_relevance_score'] > 0]
+        print(f"\nUSC relevance:")
+        print(f"USC-relevant posts: {len(usc_relevant)} ({len(usc_relevant)/len(df)*100:.1f}%)")
+        
+        # Sentiment analysis
+        print(f"\nSentiment distribution:")
         sentiment_counts = df['sentiment_category'].value_counts()
-        print(f"\nOverall sentiment distribution:")
         for sentiment, count in sentiment_counts.items():
-            percentage = (count / len(df)) * 100
-            print(f"  {sentiment.capitalize()}: {count} ({percentage:.1f}%)")
+            print(f"{sentiment.capitalize()}: {count} ({count/len(df)*100:.1f}%)")
         
-        # Average scores
-        if total_posts > 0:
-            avg_post_score = df[df['content_type'] == 'post']['score'].mean()
-            print(f"\nAverage post score: {avg_post_score:.2f}")
+        # USC-specific sentiment
+        usc_sentiment = usc_relevant['sentiment_category'].value_counts()
+        print(f"\nUSC-specific sentiment:")
+        for sentiment, count in usc_sentiment.items():
+            print(f"{sentiment.capitalize()}: {count} ({count/len(usc_relevant)*100:.1f}%)")
         
-        if total_comments > 0:
-            avg_comment_score = df[df['content_type'] == 'comment']['score'].mean()
-            print(f"Average comment score: {avg_comment_score:.2f}")
-        
-        print("="*50)
-    
-    def create_visualizations(self, df, data_file_path):
-        """
-        Create visualizations of the collected data
-        """
-        try:
-            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
-            fig.suptitle('USC Reddit Data Analysis', fontsize=16, fontweight='bold')
-            
-            # Sentiment distribution
-            sentiment_counts = df['sentiment_category'].value_counts()
-            colors = ['lightgreen', 'lightcoral', 'lightblue']
-            axes[0, 0].pie(sentiment_counts.values, labels=sentiment_counts.index, 
-                          autopct='%1.1f%%', colors=colors)
-            axes[0, 0].set_title('Sentiment Distribution')
-            
-            # Posts vs Comments
-            content_counts = df['content_type'].value_counts()
-            axes[0, 1].bar(content_counts.index, content_counts.values, 
-                          color=['skyblue', 'lightgreen'])
-            axes[0, 1].set_title('Posts vs Comments')
-            axes[0, 1].set_ylabel('Count')
-            
-            # Sentiment over time
-            df['created_date'] = pd.to_datetime(df['created_date'])
-            df['month_year'] = df['created_date'].dt.to_period('M')
-            
-            if len(df['month_year'].unique()) > 1:
-                monthly_sentiment = df.groupby(['month_year', 'sentiment_category']).size().unstack(fill_value=0)
-                monthly_sentiment.plot(kind='bar', ax=axes[1, 0], stacked=True)
-                axes[1, 0].set_title('Sentiment Over Time (Monthly)')
-                axes[1, 0].tick_params(axis='x', rotation=45)
-                axes[1, 0].legend(title='Sentiment')
-            else:
-                axes[1, 0].text(0.5, 0.5, 'Not enough data\nfor time analysis', 
-                               ha='center', va='center', transform=axes[1, 0].transAxes)
-                axes[1, 0].set_title('Sentiment Over Time')
-            
-            # Polarity distribution
-            axes[1, 1].hist(df['polarity'], bins=20, alpha=0.7, color='purple')
-            axes[1, 1].set_title('Sentiment Polarity Distribution')
-            axes[1, 1].set_xlabel('Polarity Score (-1 to 1)')
-            axes[1, 1].set_ylabel('Frequency')
-            axes[1, 1].axvline(x=0, color='red', linestyle='--', alpha=0.5)
-            
-            plt.tight_layout()
-            
-            # Create results directory using same base path as data file
-            if os.path.dirname(data_file_path):
-                project_dir = os.path.dirname(os.path.dirname(data_file_path))
-                results_dir = os.path.join(project_dir, 'results')
-            else:
-                results_dir = 'results'
-            
-            try:
-                os.makedirs(results_dir, exist_ok=True)
-                viz_filename = os.path.join(results_dir, f'usc_reddit_analysis_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png')
-                plt.savefig(viz_filename, dpi=300, bbox_inches='tight')
-                print(f"Visualization saved to {viz_filename}")
-            except Exception as e:
-                print(f"Error saving visualization: {e}")
-                # Fallback to current directory
-                viz_filename = f'usc_reddit_analysis_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
-                plt.savefig(viz_filename, dpi=300, bbox_inches='tight')
-                print(f"Visualization saved to current directory: {viz_filename}")
-            
-            plt.show()
-            
-        except Exception as e:
-            print(f"Error creating visualizations: {e}")
-            print("Continuing without visualizations...")
+        print("=" * 60)
 
 def main():
-    """
-    Main function to run the Reddit data mining
-    """
-    print("USC Thesis - Reddit Data Mining")
-    print("================================")
-    
-    # Initialize miner
+    """Main execution function"""
     try:
-        miner = RedditDataMiner()
+        miner = EnhancedRedditMiner()
+        df = miner.run_complete_collection()
         
-        # Collect and analyze data
-        df = miner.collect_and_analyze_data()
+        print("\n🎉 Data collection completed successfully!")
+        print(f"📊 You now have {len(df)} records with code-switching analysis")
+        print("📁 Check the CSV file for detailed results")
         
-        if df is not None:
-            print(f"\nData collection completed successfully!")
-            print(f"Total records collected: {len(df)}")
-            print(f"You can find your data in the 'data/raw' folder")
-            print(f"Visualizations are saved in the 'results' folder")
-        else:
-            print("\nData collection failed. Please check your configuration.")
-            
     except Exception as e:
-        print(f"Error during data collection: {e}")
-        print("Please check your Reddit API credentials in config.py")
+        print(f"❌ Error during data collection: {e}")
+        print("Please check your Reddit API credentials and internet connection")
 
 if __name__ == "__main__":
     main()

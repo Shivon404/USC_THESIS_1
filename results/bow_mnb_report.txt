@@ -1,0 +1,39 @@
+
+=== ENHANCED SENTIMENT ANALYSIS REPORT ===
+University of San Carlos Reddit Data Analysis
+Generated on: 2025-07-14 23:32:14
+
+MODEL CONFIGURATION:
+- Algorithm: Multinomial Naive Bayes
+- Feature Extraction: Bag of Words (BoW)
+- Target Classes: Negative, Neutral, Positive
+
+PERFORMANCE METRICS:
+- Test Accuracy: 0.5349
+- Weighted Precision: 0.4998
+- Weighted Recall: 0.5349
+- Weighted F1-Score: 0.5117
+- AUC Score (OvR): 0.6270
+- Cross-Validation Accuracy: 0.5525 (±0.0221)
+
+DETAILED CLASSIFICATION REPORT:
+              precision    recall  f1-score   support
+
+    Negative     0.0000    0.0000    0.0000         6
+     Neutral     0.5161    0.4324    0.4706        37
+    Positive     0.5556    0.6977    0.6186        43
+
+    accuracy                         0.5349        86
+   macro avg     0.3572    0.3767    0.3630        86
+weighted avg     0.4998    0.5349    0.5117        86
+
+
+CONFUSION MATRIX:
+[[ 0  3  3]
+ [ 0 16 21]
+ [ 1 12 30]]
+
+CLASS DISTRIBUTION IN TEST SET:
+- Negative: 6 samples (7.0%)
+- Neutral: 37 samples (43.0%)
+- Positive: 43 samples (50.0%)
