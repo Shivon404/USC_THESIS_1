@@ -9,8 +9,8 @@ import json
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-RAW_PATH = r"c:\Users\siobh\Usc_Thesis_1\data\raw\usc_code_switching_data_20250714_172421.csv"
-PROCESSED_PATH = r"c:\Users\siobh\Usc_Thesis_1\data\processed\usc_code_switching_data_processed.csv"
+RAW_PATH = r"c:\Users\siobh\Usc_Thesis_1\data\raw\usc_reddit_data_20250704_205915.csv"
+PROCESSED_PATH = r"c:\Users\siobh\Usc_Thesis_1\data\processed\usc_data_processed.csv"
 STATS_PATH = r"c:\Users\siobh\Usc_Thesis_1\data\processed\cleaning_stats.json"
 
 class CodeSwitchingCleaner:

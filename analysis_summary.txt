@@ -1,0 +1,9 @@
+N-gram Analysis Summary
+=========================
+
+total_documents_processed: 428
+total_bigrams_found: 100
+total_trigrams_found: 100
+avg_tokens_per_doc: 42.69392523364486
+most_common_bigram: (('sa', 'cebu'), 61)
+most_common_trigram: (('university', 'san', 'carlos'), 30)

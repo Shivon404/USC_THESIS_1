@@ -1,14 +1,10 @@
 {
-  "original_rows": 1141,
-  "rows_after_cleaning": 428,
+  "original_rows": 358,
+  "rows_after_cleaning": 324,
   "rows_removed_empty": 0,
-  "rows_removed_duplicates": 3,
-  "rows_removed_noise": 710,
-  "language_distribution": {
-    "tagalog": 428,
-    "conyo": 417,
-    "bisaya": 377
-  },
-  "avg_text_length_before": 1066.682882882883,
-  "avg_text_length_after": 351.77803738317755
+  "rows_removed_duplicates": 0,
+  "rows_removed_noise": 34,
+  "language_distribution": {},
+  "avg_text_length_before": 284.5391061452514,
+  "avg_text_length_after": 185.62654320987653
 }

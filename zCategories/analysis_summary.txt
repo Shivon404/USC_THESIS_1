@@ -1,0 +1,22 @@
+Word Frequency Analysis Summary
+================================
+
+total_documents_processed: 324
+total_unique_words_found: 100
+total_word_occurrences: 1596
+avg_tokens_per_doc: 19.814814814814813
+most_common_word: ang
+most_common_word_frequency: 95
+avg_word_length: 5.34
+
+Word Length Distribution:
+-------------------------
+3 characters: 21 words
+4 characters: 23 words
+5 characters: 16 words
+6 characters: 15 words
+7 characters: 10 words
+8 characters: 5 words
+9 characters: 3 words
+10 characters: 5 words
+11 characters: 2 words
